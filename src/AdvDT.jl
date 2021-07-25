@@ -1,10 +1,14 @@
 module AdvDT
 
+using Base: Float64
 using Base.Threads
 const MAX_DEPTH = 10
 
+"""
+Store node information gini impurity 𝐺, target class ŷ, optimal field index to split ι, optimal threshold of field value to split θ, level λ, left child and right child.
+"""
 mutable struct Node # not sure when Node{T} is used 20210722, alternatively children::Array{Node, 1}
-    impurity::Float64 # impurity of this node
+    𝐺::Float64 # impurity of this node
     ŷ::Int64 # predicted class
     ι::Int64 # index of the field to split
     θ::Float64 # threshold in the field to determine which path to take
@@ -15,6 +19,15 @@ mutable struct Node # not sure when Node{T} is used 20210722, alternatively chil
 end
 
 """
+Store split information gini impurity 𝐺⭑ and threshold θ⭑ for each field for using threads.
+"""
+mutable struct SplitInfo
+    𝐺⭑::Float64
+    θ⭑::Float64
+end
+
+"""
+Get gini impurity and target class from class labels.
 """
 function gini_impurity_and_target_class(y)
     κ = length(Set(y)) # number of classes
@@ -24,6 +37,7 @@ function gini_impurity_and_target_class(y)
 end
 
 """
+Iteratively find an optimal field index and field value threshold to split.
 """
 function best_split(X, y, Κ)
     n, m = size(X)
@@ -64,25 +78,29 @@ function best_split(X, y, Κ)
 end
 
 """
+Iteratively find an optimal field index and field value threshold to split using threads.
 """
 function best_split_thread(X, y, Κ)
     n, m = size(X)
     @assert n == length(y)
 
-    ι⭑, θ⭑ = -1, 0.0
     if n <= 1
-        return ι⭑, θ⭑
+        return -1, 0.0
     end
 
     ηs_cn = [sum(y .== i) for i in 1:Κ] # number of samples per class in current node
-    𝐺⭑ = 1.0 - sum((η / n) * (η / n) for η in ηs_cn)
+    si = Array{SplitInfo, 1}(undef, m)
+    for i in 1:m
+        si[i].𝐺⭑ = 1.0 - sum((η / n) * (η / n) for η in ηs_cn)
+        si[i].θ⭑ = 0.0;
+    end
 
     @threads for mᵢ in 1:m
         sub = hcat(X[:, mᵢ], y)
         sorted_sub = sub[sortperm(sub[:, 1]), :] # θs = sorted_sub[:, 1], κs = sorted_sub[:, 2]
         ηₗ = zeros(Κ) # can come with a subscript but not a big special character
         ηᵣ = copy(ηs_cn) # can come with a subscript but not a big special character
-        for nᵢ in 2:n # default sort order is from small to large
+        @inbounds for nᵢ in 2:n # default sort order is from small to large
             if sorted_sub[nᵢ, 1] == sorted_sub[nᵢ - 1, 1] # if the same feature value then no difference
                 continue
             end
@@ -92,15 +110,24 @@ function best_split_thread(X, y, Κ)
             𝐺ₗ = 1.0 - sum((ηₗ[κ] / nᵢ) * (ηₗ[κ] / nᵢ) for κ in 1:Κ)
             𝐺ᵣ = 1.0 - sum((ηᵣ[κ] / (n - nᵢ)) * (ηᵣ[κ] / (n - nᵢ)) for κ in 1:Κ)
             𝐺 = (nᵢ * 𝐺ₗ + (n - nᵢ) * 𝐺ᵣ) / n
-            if 𝐺 < 𝐺⭑
-                𝐺⭑ = 𝐺
-                ι⭑ = mᵢ
-                θ⭑ = (sorted_sub[nᵢ, 1] + sorted_sub[nᵢ - 1, 1]) / 2
+            if 𝐺 < si[mᵢ].𝐺⭑
+                si[mᵢ].𝐺⭑ = 𝐺
+                si[mᵢ].θ⭑ = (sorted_sub[nᵢ, 1] + sorted_sub[nᵢ - 1, 1]) / 2
             end
         end
     end
 
-    return ι⭑, θ⭑
+    si⭑ = si[1]
+    ι⭑ = 1
+    for mᵢ in 2:m
+        if si⭑[mᵢ].𝐺⭑ < si⭑.𝐺⭑
+            si⭑.𝐺⭑ = si⭑[mᵢ].𝐺⭑
+            ι⭑ = mᵢ
+            si⭑.θ⭑ = si⭑[mᵢ].θ⭑
+        end
+    end
+
+    return ι⭑, si⭑.θ⭑
 end
 
 """
@@ -126,6 +153,7 @@ function fit(X, y, method = "recursive")
 end
 
 """
+Predict target class from the tree model for the record.
 """
 function predict(tree, record)
     node = tree
@@ -140,6 +168,7 @@ function predict(tree, record)
 end
 
 """
+Print tree formatted.
 """
 function print_tree(tree)
     node = tree
