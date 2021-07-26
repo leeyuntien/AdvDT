@@ -217,7 +217,7 @@ function grow_tree_iterative(X, y)
     push!(node_stack, (ν, Bool.(ones(1:size(X)[1])))) # all records
     while length(node_stack) > 0
         (γ, ιs) = pop!(node_stack)
-        γ.impurity, γ.ŷ = gini_impurity_and_target_class(y[ιs])
+        γ.𝐺, γ.ŷ = gini_impurity_and_target_class(y[ιs])
         if γ.λ < MAX_DEPTH
             ι⭑, θ⭑ = best_split(X[ιs, :], y[ιs], Κ)
             if ι⭑ > -1
@@ -243,16 +243,21 @@ function grow_tree_iterative_thread(X, y)
 
     node_stack = []
     push!(node_stack, (ν, Bool.(ones(1:size(X)[1])))) # all records
-    #=while length(node_stack) > 0
-        (ν, ιs) = pop!(node_stack)
-        ι⭑, θ⭑ = best_split_thread(X[ιs, :], y[ιs], Κ)
-        if ι⭑ > -1
-            ν.ι = ι⭑ # best field index
-            ν.θ = θ⭑ # best field value threshold
-            push!(node_stack, (ν.left, X[ιs, ι⭑] .< θ⭑))
-            push!(node_stack, (ν.right, X[ιs, ι⭑] .>= θ⭑))
+    while length(node_stack) > 0
+        (γ, ιs) = pop!(node_stack)
+        γ.𝐺, γ.ŷ = gini_impurity_and_target_class(y[ιs])
+        if γ.λ < MAX_DEPTH
+            ι⭑, θ⭑ = best_split_thread(X[ιs, :], y[ιs], Κ)
+            if ι⭑ > -1
+                γ.ι = ι⭑ # best field index
+                γ.θ = θ⭑ # best field value threshold
+                γ.left = Node(0.0, 0, -1, 0.0, γ.λ + 1) # information in left child
+                γ.right = Node(0.0, 0, -1, 0.0, γ.λ + 1) # information in right child
+                push!(node_stack, (γ.left, (ιs) .& (X[:, ι⭑] .< θ⭑)))
+                push!(node_stack, (γ.right, (ιs) .& (X[:, ι⭑] .>= θ⭑)))
+            end
         end        
-    end=#
+    end
 
     return ν
 end
