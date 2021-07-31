@@ -131,6 +131,12 @@ function best_split_thread(X, y, Κ)
 end
 
 """
+Iteratively find an optimal field index and field value threshold to split using gpus.
+"""
+function best_split_gpu(X, y, Κ)
+end
+
+"""
 Build a decision tree classifier
 """
 function fit(X, y, method = "recursive")
